@@ -1,0 +1,2 @@
+MyWifiName
+MyWifiPSK
