@@ -113,11 +113,12 @@ bool handleFileRead(String path) {
 void handleRoot() {
   GO.lcd.clear();
   GO.lcd.setCursor(0, 0);
-  GO.lcd.println("List Dir.");
 
   String directory = urldecode(server.uri());
   uploadPath = directory;
   File dir = SD.open(directory);
+
+  GO.lcd.print("Index of ");GO.lcd.println(directory);
 
   String entryName = "";
   String tree = "";
@@ -147,6 +148,7 @@ void handleRoot() {
       tree += entry.name();
       tree += F("';\">Delete</button></td>");
       tree += F("</tr>");
+      GO.lcd.print(entryName); GO.lcd.println(" - <DIR>");
       emptyFolder = false;
     } else {
       tree += F("<tr>");
@@ -167,6 +169,7 @@ void handleRoot() {
       tree += entry.name();
       tree += F("';\">Delete</button></td>");
       tree += F("</tr>");
+      GO.lcd.print(entryName); GO.lcd.print(" - "); GO.lcd.println(file_size(entry.size()));
       emptyFolder = false;
     }
     entry.close();
@@ -402,11 +405,6 @@ void deleteConfirm() {
 
 File UploadFile;
 void handleFileUpload() {
-  GO.lcd.clear();
-  GO.lcd.setCursor(0, 0);
-  GO.lcd.println("Upload Start");
-  Serial.println("Upload Start");
-
   // upload a new file to the Filing system
   HTTPUpload& uploadfile = server.upload(); // See https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266WebServer/srcv
   // For further information on 'status' structure, there are other reasons such as a failed transfer that could be used
@@ -414,6 +412,8 @@ void handleFileUpload() {
   {
     String filename = uploadfile.filename;
     if (!filename.startsWith("/")) filename = uploadPath + "/" + filename;
+    GO.lcd.clear();
+    GO.lcd.setCursor(0, 0);
     Serial.print("Upload File Name: "); Serial.println(filename);
     GO.lcd.print("Upload File Name: "); GO.lcd.println(filename);
     SD.remove(filename);                         // Remove a previous version, otherwise data is appended the file again
@@ -422,17 +422,25 @@ void handleFileUpload() {
   }
   else if (uploadfile.status == UPLOAD_FILE_WRITE)
   {
-    if (UploadFile) UploadFile.write(uploadfile.buf, uploadfile.currentSize); // Write the received bytes to the file
+    if (UploadFile) {
+      UploadFile.write(uploadfile.buf, uploadfile.currentSize); // Write the received bytes to the file
+      GO.lcd.setCursor(0, 30);
+      GO.lcd.fillRect(0, 29, TFT_HEIGHT, 20, BLACK);
+      GO.lcd.print("Loading: "); GO.lcd.println(file_size(uploadfile.totalSize));
+    }
   }
   else if (uploadfile.status == UPLOAD_FILE_END)
   {
     if (UploadFile)         // If the file was successfully created
     {
       UploadFile.close();   // Close the file again
+      delay(1000);
+      GO.lcd.clear();
+      GO.lcd.setCursor(0, 0);
       Serial.print("Upload Size: "); Serial.println(uploadfile.totalSize);
       GO.lcd.println("File was successfully uploaded.");
       GO.lcd.print("Uploaded File Name: "); GO.lcd.println(uploadfile.filename);
-      GO.lcd.print("File Size: "); GO.lcd.println(uploadfile.totalSize);
+      GO.lcd.print("File Size: "); GO.lcd.println(file_size(uploadfile.totalSize));
 
       String webpage = "";
       webpage += F(header);
@@ -447,6 +455,9 @@ void handleFileUpload() {
     }
     else
     {
+      delay(1000);
+      GO.lcd.clear();
+      GO.lcd.setCursor(0, 0);
       GO.lcd.println("Could Not Create Uploaded File (write-protected?)");
       String webpage = "";
       webpage += F(header);
@@ -569,43 +580,13 @@ void setup(void) {
   digitalWrite(25, LOW);
 
   GO.battery.setProtection(true);
-  delay(1000);
+  delay(100);
 
   GO.lcd.clear();
   GO.lcd.setCursor(0, 0);
+  GO.lcd.setTextWrap(false);
 
   Serial.println("");
-
-  // You can remove the password parameter if you want the AP to be open.
-  WiFi.softAP(ssid, password);
-  IPAddress myIP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(myIP);
-  GO.lcd.print("AP SSID: "); GO.lcd.println(ssid);
-  GO.lcd.print("AP Password: "); GO.lcd.println(password);
-  GO.lcd.print("AP IP address: "); GO.lcd.println(myIP);
-
-  if (MDNS.begin("esp32")) {
-    Serial.println("MDNS responder started");
-    GO.lcd.println("MDNS responder started");
-  }
-
-  server.on("/", []() {
-    handleRoot();
-  });
-
-  server.onNotFound(handleRoot);
-
-  server.on("/fupload",  HTTP_POST, []() {
-    server.send(200);
-  }, handleFileUpload);
-
-  server.on("/deleteConfirm", deleteConfirm);
-  server.on("/doDelete", doDelete);
-  server.on("/mkdir", doMkdir);
-  server.begin();
-  Serial.println("HTTP server started");
-  GO.lcd.println("HTTP server started");
 
   Serial.print("Initializing SD card...");
   GO.lcd.println("Initializing SD card...");
@@ -643,6 +624,119 @@ void setup(void) {
   uint64_t cardSize = SD.cardSize() / (1024 * 1024);
   Serial.printf("SD Card Size: %lluMB\n", cardSize);
   GO.lcd.printf("SD Card Size: %lluMB\n", cardSize);
+
+  GO.lcd.println(" ");
+  Serial.println();
+
+  GO.lcd.println("-Wifi Mode-");
+  GO.lcd.println("-> Press A for Access Point mode");
+  GO.lcd.println("-> Press B to connect to a Wifi");
+  GO.lcd.println(" ");
+  Serial.println();
+  while (true) {
+    if (GO.BtnA.isPressed()) {
+      // You can remove the password parameter if you want the AP to be open.
+      WiFi.softAP(ssid, password);
+      IPAddress myIP = WiFi.softAPIP();
+      Serial.print("AP IP address: "); Serial.println(myIP);
+      GO.lcd.println("AP started");
+      GO.lcd.print("AP SSID: "); GO.lcd.println(ssid);
+      GO.lcd.print("AP Password: "); GO.lcd.println(password);
+      GO.lcd.print("AP IP address: "); GO.lcd.println(myIP);
+      break;
+    }
+    if (GO.BtnB.isPressed()) {
+      String WifiSSID = "";
+      String WifiPSK = "";
+
+      String path = "/WIFI.TXT";
+      Serial.print("Reading file: ");
+      Serial.println(path);
+      GO.lcd.print("Reading file: ");
+      GO.lcd.println(path);
+      File wifiFile = SD.open(path);
+      if (!wifiFile) {
+        Serial.println("Failed to open file for reading");
+        GO.lcd.println("Failed to open file for reading");
+        return;
+      }
+      Serial.println("Read from file: ");
+      GO.lcd.println("Read from file: ");
+      while (wifiFile.available()) {
+        WifiSSID = wifiFile.readStringUntil('\n');
+        WifiSSID.replace("\r", "");
+        WifiPSK = wifiFile.readStringUntil('\n');
+        WifiPSK.replace("\r", "");
+        break;
+      }
+      wifiFile.close();
+      Serial.print("SSID: ");
+      Serial.println(WifiSSID);
+      Serial.print("PSK: ");
+      Serial.println(WifiPSK);
+      GO.lcd.print("SSID: '");
+      GO.lcd.print(WifiSSID);
+      GO.lcd.println("'");
+      GO.lcd.print("PSK: '");
+      GO.lcd.print(WifiPSK);
+      GO.lcd.println("'");
+      Serial.println();
+
+      //delete old wifi Credentials
+      WiFi.disconnect();
+
+      WiFi.begin(WifiSSID.c_str(), WifiPSK.c_str());
+      Serial.print("Connecting Wifi");
+      GO.lcd.print("Connecting Wifi");
+      while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        GO.lcd.print(".");
+      }
+
+      GO.lcd.println(" ");
+      Serial.println();
+      Serial.println("IP address: ");
+      Serial.println(WiFi.localIP());
+      GO.lcd.println("IP address: ");
+      GO.lcd.println(WiFi.localIP());
+
+      GO.lcd.println(" ");
+      Serial.println();
+
+      if (MDNS.begin("odroidgo")) {
+        Serial.println("MDNS responder started");
+        GO.lcd.println("MDNS responder started");
+        Serial.println("You can connect via http://odroidgo.local");
+        GO.lcd.println("You can connect via http://odroidgo.local");
+      }
+      break;
+    }
+    GO.update();
+  }
+
+  GO.lcd.println(" ");
+  Serial.println();
+
+  server.on("/", []() {
+    handleRoot();
+  });
+
+  server.onNotFound(handleRoot);
+
+  server.on("/fupload",  HTTP_POST, []() {
+    server.send(200);
+  }, handleFileUpload);
+
+  server.on("/deleteConfirm", deleteConfirm);
+  server.on("/doDelete", doDelete);
+  server.on("/mkdir", doMkdir);
+  server.begin();
+  Serial.println("HTTP server started");
+  GO.lcd.println("HTTP server started");
+
+  GO.lcd.println();
+  Serial.println();
 
   Serial.println("Initialization done.");
   GO.lcd.println("Initializing done.");
